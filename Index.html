@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>DC-1 · Dispenser Automático de Copos — Visualização 3D</title>
+<style>
+  :root{
+    --black: #121212;
+    --black-2: #1b1b1b;
+    --black-3: #232323;
+    --yellow: #F5C400;
+    --yellow-dim: #C99A00;
+    --cream: #F4F1EA;
+    --grey: #8b8b86;
+    --red: #FF3B30;
+    --line: rgba(244,241,234,0.10);
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: radial-gradient(120% 140% at 50% -10%, #232323 0%, #141414 45%, #0c0c0c 100%);
+    color: var(--cream);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,h2,h3, .nameplate, .step-num{
+    font-family: 'Oswald', 'Arial Narrow', sans-serif;
+  }
+
+  #app{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+  }
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 18px clamp(16px,4vw,40px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:34px; height:34px; border-radius:6px;
+    background: linear-gradient(155deg, var(--yellow) 0 55%, var(--yellow-dim) 55% 100%);
+    position:relative; flex-shrink:0;
+  }
+  .brand-mark::after{
+    content:"";
+    position:absolute; inset:7px;
+    background: var(--black);
+    border-radius:3px;
+  }
+  .brand-text .nameplate{
+    font-size:19px; font-weight:600; letter-spacing:.02em; line-height:1.1;
+    text-transform:uppercase;
+  }
+  .brand-text .brand-sub{
+    font-size:12.5px; color:var(--grey); margin-top:2px;
+  }
+
+  .topbar-status{
+    display:flex; align-items:center; gap:9px;
+    font-size:13px; color:var(--grey);
+    border:1px solid var(--line);
+    padding:7px 14px 7px 11px;
+    border-radius:999px;
+  }
+  .dot{
+    width:9px; height:9px; border-radius:50%;
+    background: var(--yellow);
+    box-shadow: 0 0 8px 1px rgba(245,196,0,.7);
+    flex-shrink:0;
+  }
+  .dot.busy{ background:#eaf4ff; box-shadow:0 0 10px 2px rgba(180,220,255,.85); animation: pulseFast 0.5s infinite; }
+  .dot.empty{ background:var(--red); box-shadow:0 0 10px 2px rgba(255,59,48,.8); animation: pulseSlow 1s infinite; }
+  @keyframes pulseFast{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
+  @keyframes pulseSlow{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  /* ---------- main layout ---------- */
+  main{
+    flex:1;
+    display:grid;
+    grid-template-columns: minmax(0,1fr) 340px;
+    gap:0;
+  }
+
+  .stage{
+    position:relative;
+    min-height: 460px;
+    border-right:1px solid var(--line);
+  }
+  #scene-container{ position:absolute; inset:0; }
+  #scene-container canvas{ display:block; width:100%; height:100%; }
+
+  .stage-hint{
+    position:absolute; left:20px; bottom:16px;
+    font-size:12px; color:rgba(244,241,234,.55);
+    letter-spacing:.02em;
+    pointer-events:none;
+    display:flex; align-items:center; gap:6px;
+  }
+  .stage-hint svg{ opacity:.7; }
+
+  .view-toggle{
+    position:absolute; top:18px; left:18px;
+    display:flex; background:rgba(18,18,18,.55);
+    border:1px solid var(--line);
+    border-radius:9px; padding:3px;
+    backdrop-filter: blur(6px);
+  }
+  .view-toggle button{
+    appearance:none; border:0; background:transparent;
+    color:var(--grey); font-family:inherit; font-size:12.5px;
+    padding:8px 12px; border-radius:6px; cursor:pointer;
+    transition: background .18s ease, color .18s ease;
+  }
+  .view-toggle button.active{
+    background:var(--yellow); color:#141414; font-weight:600;
+  }
+
+  .toast{
+    position:absolute; left:50%; top:18px; transform:translateX(-50%) translateY(-14px);
+    background:#1a1a1a; border:1px solid rgba(255,59,48,.5);
+    color:var(--cream); padding:10px 16px; border-radius:8px;
+    font-size:13px; display:flex; align-items:center; gap:9px;
+    opacity:0; pointer-events:none; transition: opacity .25s ease, transform .25s ease;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast .dotmini{ width:7px;height:7px;border-radius:50%; background:var(--red); flex-shrink:0; }
+
+  /* ---------- control panel ---------- */
+  .panel{
+    padding: 26px 24px 22px;
+    display:flex; flex-direction:column; gap:20px;
+    overflow-y:auto;
+  }
+  .panel h2{
+    font-size:13px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--grey); font-weight:500; margin:0 0 2px;
+  }
+
+  .card{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:16px;
+    background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
+  }
+
+  .status-row{ display:flex; align-items:center; justify-content:space-between; }
+  .status-row .label{ font-size:14.5px; }
+  .status-row .value{ font-size:14.5px; font-weight:600; }
+  .status-sub{ font-size:12px; color:var(--grey); margin-top:6px; }
+
+  .count-track{
+    margin-top:12px; height:6px; border-radius:99px;
+    background:rgba(255,255,255,.08); overflow:hidden;
+  }
+  .count-fill{
+    height:100%; background: linear-gradient(90deg, var(--yellow-dim), var(--yellow));
+    border-radius:99px; transition: width .35s ease;
+  }
+
+  button.btn{
+    appearance:none; border:0; cursor:pointer; font-family:inherit;
+    border-radius:9px; font-size:14.5px; font-weight:600;
+    padding:14px 16px; width:100%;
+    transition: transform .12s ease, filter .15s ease, opacity .15s ease;
+  }
+  button.btn:active{ transform: scale(.98); }
+  .btn-primary{
+    background: var(--yellow); color:#141414;
+    box-shadow: 0 8px 20px rgba(245,196,0,.18);
+  }
+  .btn-primary:hover{ filter:brightness(1.06); }
+  .btn-primary:disabled{
+    background:#3a3a38; color:#7d7d78; box-shadow:none; cursor:not-allowed;
+  }
+  .btn-ghost{
+    background:transparent; color:var(--cream);
+    border:1px solid var(--line); font-weight:500; font-size:13px;
+    padding:11px 14px;
+  }
+  .btn-ghost:hover{ border-color:rgba(244,241,234,.3); }
+
+  .row-2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  .steps{ display:flex; flex-direction:column; gap:12px; }
+  .step{ display:flex; gap:12px; align-items:flex-start; }
+  .step-num{
+    font-size:12px; color:var(--black); background:var(--yellow);
+    width:22px; height:22px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; font-weight:600; margin-top:1px;
+  }
+  .step-text{ font-size:13px; color:rgba(244,241,234,.85); line-height:1.5; }
+  .step-text b{ color:var(--cream); font-weight:600; }
+
+  .legend{ font-size:12px; color:var(--grey); line-height:1.7; }
+  .legend span{ display:inline-flex; align-items:center; gap:7px; margin-right:14px; }
+  .legend i{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+
+  @media (max-width: 900px){
+    main{ grid-template-columns: 1fr; }
+    .stage{ min-height: 62vh; border-right:none; border-bottom:1px solid var(--line); }
+    .panel{ padding:20px 18px 30px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">
+        <div class="nameplate">DC-1 · Dispenser de copos</div>
+        <div class="brand-sub">Módulo de liberação automática — vending de doses</div>
+      </div>
+    </div>
+    <div class="topbar-status">
+      <span class="dot" id="topDot"></span>
+      <span id="topStatusText">Pronto para liberar</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="view-toggle">
+        <button id="viewClient" class="active">Vista do cliente</button>
+        <button id="viewTech">Vista técnica</button>
+      </div>
+
+      <div class="toast" id="toast">
+        <span class="dotmini"></span>
+        <span id="toastText">Cartucho sem copos — reponha para continuar.</span>
+      </div>
+
+      <div id="scene-container"></div>
+
+      <div class="stage-hint">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v18M3 12h18" stroke-opacity="0"/><circle cx="12" cy="12" r="9"/><path d="M8 12a4 4 0 118 0 4 4 0 01-8 0z"/></svg>
+        arraste para girar · roda do mouse para aproximar
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div>
+        <h2>Status do módulo</h2>
+        <div class="card">
+          <div class="status-row">
+            <span class="label">Situação</span>
+            <span class="value" id="statusValue">Pronto</span>
+          </div>
+          <div class="status-sub" id="statusSub">Aguardando confirmação de pagamento.</div>
+          <div class="status-row" style="margin-top:14px;">
+            <span class="label">Copos no cartucho</span>
+            <span class="value"><span id="cupCount">8</span>/<span id="cupMax">8</span></span>
+          </div>
+          <div class="count-track"><div class="count-fill" id="countFill" style="width:100%;"></div></div>
+        </div>
+      </div>
+
+      <div>
+        <h2>Simulação</h2>
+        <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+          <button class="btn btn-primary" id="btnPay">Confirmar pagamento</button>
+          <div class="row-2">
+            <button class="btn btn-ghost" id="btnEmpty">Simular cartucho vazio</button>
+            <button class="btn btn-ghost" id="btnRefill">Repor cartucho</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>Como funciona</h2>
+        <div class="steps">
+          <div class="step">
+            <span class="step-num">1</span>
+            <span class="step-text"><b>Pagamento confirmado</b> na máquina de doses.</span>
+          </div>
+          <div class="step">
+            <span class="step-num">2</span>
+            <span class="step-text"><b>Um copo é liberado</b> do cartucho automaticamente, sem intervenção manual.</span>
+          </div>
+          <div class="step">
+            <span class="step-num">3</span>
+            <span class="step-text">O copo <b>desce pela rampa</b> e fica pronto na bandeja, na abertura exposta da parede.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><i style="background:var(--yellow); box-shadow:0 0 6px rgba(245,196,0,.7)"></i>Pronto</span>
+        <span><i style="background:#eaf4ff; box-shadow:0 0 6px rgba(180,220,255,.8)"></i>Liberando</span>
+        <span><i style="background:var(--red); box-shadow:0 0 6px rgba(255,59,48,.8)"></i>Sem copos</span>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================================================
+   CONFIG / ESTADO
+   ============================================================ */
+const MAX_CUPS = 8;
+let cupsRemaining = MAX_CUPS;
+let isDispensing = false;
+let ledState = 'idle'; // idle | busy | empty
+let currentView = 'client'; // client | tech
+
+const stackCups = [];   // meshes empilhados no cartucho (base -> topo)
+const STACK_BASE_Y = 1.02;
+const STACK_STEP = 0.135;
+const STACK_X = 0, STACK_Z = -1.55;
+
+/* ============================================================
+   DOM
+   ============================================================ */
+const el = {
+  cupCount: document.getElementById('cupCount'),
+  cupMax: document.getElementById('cupMax'),
+  countFill: document.getElementById('countFill'),
+  statusValue: document.getElementById('statusValue'),
+  statusSub: document.getElementById('statusSub'),
+  topDot: document.getElementById('topDot'),
+  topStatusText: document.getElementById('topStatusText'),
+  btnPay: document.getElementById('btnPay'),
+  btnEmpty: document.getElementById('btnEmpty'),
+  btnRefill: document.getElementById('btnRefill'),
+  viewClient: document.getElementById('viewClient'),
+  viewTech: document.getElementById('viewTech'),
+  toast: document.getElementById('toast'),
+  toastText: document.getElementById('toastText'),
+};
+el.cupMax.textContent = MAX_CUPS;
+
+/* ============================================================
+   THREE.JS — CENA BASE
+   ============================================================ */
+const container = document.getElementById('scene-container');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x141414);
+scene.fog = new THREE.Fog(0x141414, 6, 13);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+const camClient = { pos: new THREE.Vector3(1.9, 1.55, 2.9), target: new THREE.Vector3(0, 0.75, 0.35) };
+const camTech   = { pos: new THREE.Vector3(2.6, 2.15, -3.6), target: new THREE.Vector3(0, 1.15, -1.1) };
+camera.position.copy(camClient.pos);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 1.6;
+controls.maxDistance = 8;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.target.copy(camClient.target);
+controls.update();
+
+function resize(){
+  const w = container.clientWidth, h = container.clientHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+new ResizeObserver(resize).observe(container);
+
+/* ---------- luz ---------- */
+scene.add(new THREE.AmbientLight(0x99989a, 0.55));
+
+const key = new THREE.DirectionalLight(0xfff3d6, 1.25);
+key.position.set(3.2, 4.5, 2.8);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -4; key.shadow.camera.right = 4;
+key.shadow.camera.top = 4; key.shadow.camera.bottom = -4;
+key.shadow.bias = -0.0025;
+scene.add(key);
+
+const rim = new THREE.DirectionalLight(0xffe27a, 0.5);
+rim.position.set(-3, 2.2, -2.6);
+scene.add(rim);
+
+const fill = new THREE.PointLight(0xffffff, 0.35, 8);
+fill.position.set(-1.4, 1.6, 2.4);
+scene.add(fill);
+
+/* ---------- chão ---------- */
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.92, metalness: 0.05 });
+const floor = new THREE.Mesh(new THREE.CircleGeometry(6, 48), floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x2b2b2b });
+const ring = new THREE.Mesh(new THREE.RingGeometry(1.55, 1.58, 64), ringMat);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.002;
+scene.add(ring);
+
+/* ============================================================
+   MATERIAIS
+   ============================================================ */
+const matBlack = new THREE.MeshPhysicalMaterial({ color: 0x161616, roughness: 0.35, metalness: 0.55, clearcoat: 0.5, clearcoatRoughness: 0.3 });
+const matBlackSoft = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.6, metalness: 0.3 });
+const matYellow = new THREE.MeshPhysicalMaterial({ color: 0xF5C400, roughness: 0.32, metalness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.25 });
+const matYellowDim = new THREE.MeshStandardMaterial({ color: 0xC99A00, roughness: 0.5, metalness: 0.3 });
+const matAcrylic = new THREE.MeshPhysicalMaterial({ color: 0xdfeeff, roughness: 0.1, metalness: 0, transmission: 0.85, transparent: true, opacity: 0.35, thickness: 0.05 });
+const matCup = new THREE.MeshPhysicalMaterial({ color: 0xf4f1ea, roughness: 0.25, metalness: 0.02, transmission: 0.12, transparent: true, opacity: 0.92 });
+const matCupRim = new THREE.MeshStandardMaterial({ color: 0xF5C400, roughness: 0.4, metalness: 0.2 });
+const matChrome = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.25, metalness: 0.9 });
+
+/* ============================================================
+   GRUPO PRINCIPAL DA MÁQUINA (coordenadas locais = mundo)
+   Eixo Z: negativo = atrás da parede (interior/oculto)
+             positivo = frente da parede (exposto ao cliente)
+   ============================================================ */
+const machine = new THREE.Group();
+scene.add(machine);
+
+/* ---------- texto em canvas (placa) ---------- */
+function makeLabelTexture(text, opts = {}) {
+  const w = opts.w || 512, h = opts.h || 128;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = opts.bg || 'rgba(0,0,0,0)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = opts.color || '#F5C400';
+  ctx.font = `${opts.weight || 700} ${opts.size || 58}px 'Arial Narrow', Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.letterSpacing = '2px';
+  ctx.fillText(text, w / 2, h / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/* ---------- CARTUCHO / TUBO DE COPOS (atrás da parede) ---------- */
+const tubeGroup = new THREE.Group();
+tubeGroup.position.set(STACK_X, 0, STACK_Z);
+machine.add(tubeGroup);
+
+const TUBE_R = 0.5, TUBE_H = 1.5;
+const slotStart = Math.PI * 0.32, slotLen = Math.PI * 0.62;
+
+const tubeGeo = new THREE.CylinderGeometry(TUBE_R, TUBE_R, TUBE_H, 28, 1, true, slotStart + slotLen, Math.PI * 2 - slotLen);
+const tube = new THREE.Mesh(tubeGeo, matBlack);
+tube.position.y = 1.65;
+tube.castShadow = true;
+tubeGroup.add(tube);
+
+const tubeCap = new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R + 0.02, TUBE_R + 0.02, 0.05, 28), matYellowDim);
+tubeCap.position.y = 1.65 + TUBE_H / 2;
+tubeGroup.add(tubeCap);
+
+const acrylicGeo = new THREE.CylinderGeometry(TUBE_R + 0.006, TUBE_R + 0.006, TUBE_H - 0.06, 20, 1, true, slotStart, slotLen);
+const acrylic = new THREE.Mesh(acrylicGeo, matAcrylic);
+acrylic.position.y = 1.65;
+tubeGroup.add(acrylic);
+
+// trims amarelos no cartucho
+[1.05, 2.25].forEach(y => {
+  const trim = new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R + 0.012, TUBE_R + 0.012, 0.05, 28), matYellow);
+  trim.position.y = y;
+  tubeGroup.add(trim);
+});
+
+/* ---------- mecanismo / gaveta de liberação ---------- */
+const mechBox = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.62, 0.9), matBlackSoft);
+mechBox.position.set(STACK_X, 0.55, STACK_Z);
+mechBox.castShadow = true;
+machine.add(mechBox);
+
+const mechStripe = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.08, 0.92), matYellow);
+mechStripe.position.set(STACK_X, 0.55, STACK_Z);
+machine.add(mechStripe);
+
+// LED sensor "sem copo" no mecanismo (lado técnico)
+const mechLed = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0x330000, emissiveIntensity: 1 }));
+mechLed.position.set(0.42, 0.78, STACK_Z + 0.46);
+machine.add(mechLed);
+
+/* ---------- pés / base ---------- */
+const baseGeo = new THREE.BoxGeometry(1.1, 0.1, 2.6);
+const base = new THREE.Mesh(baseGeo, matBlackSoft);
+base.position.set(STACK_X, 0.05, STACK_Z + 0.55);
+base.receiveShadow = true;
+base.castShadow = true;
+machine.add(base);
+
+/* ============================================================
+   RAMPA — calha em Y/Z (sem variação em X)
+   ============================================================ */
+function addChute(group, y0, z0, y1, z1, width, thick, topMat, railMat){
+  const dy = y1 - y0, dz = z1 - z0;
+  const len = Math.sqrt(dy*dy + dz*dz);
+  const angle = Math.atan2(-dy, dz);
+
+  const g = new THREE.Group();
+  g.position.set(STACK_X, (y0+y1)/2, (z0+z1)/2);
+  g.rotation.x = angle;
+
+  const base = new THREE.Mesh(new THREE.BoxGeometry(width, thick, len), topMat);
+  base.castShadow = true; base.receiveShadow = true;
+  g.add(base);
+
+  const railH = 0.09;
+  [-1, 1].forEach(side => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.035, railH, len), railMat);
+    rail.position.set(side * (width/2 - 0.01), railH/2, 0);
+    g.add(rail);
+  });
+
+  group.add(g);
+  return { len, angle };
+}
+
+// calha interna (oculta atrás da parede): do mecanismo até a parede
+addChute(machine, 0.42, STACK_Z + 0.42, 0.34, -0.02, 0.5, 0.05, matBlackSoft, matBlackSoft);
+
+// calha exposta (na frente da parede, visível ao cliente)
+addChute(machine, 0.32, 0.09, 0.06, 0.62, 0.46, 0.05, matYellow, matBlack);
+
+/* pinguela final / lábio da rampa */
+const lip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.46, 12), matChrome);
+lip.rotation.z = Math.PI / 2;
+lip.position.set(0, 0.045, 0.63);
+machine.add(lip);
+
+/* bandeja de coleta */
+const trayGroup = new THREE.Group();
+trayGroup.position.set(0, 0, 0.86);
+machine.add(trayGroup);
+const trayBase = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.03, 24), matYellow);
+trayBase.position.y = 0.02;
+trayGroup.add(trayBase);
+const trayRim = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.018, 10, 30), matBlack);
+trayRim.rotation.x = Math.PI/2;
+trayRim.position.y = 0.03;
+trayGroup.add(trayRim);
+
+/* ============================================================
+   PAREDE (o cliente só vê isto + a rampa exposta + bandeja)
+   ============================================================ */
+const WALL_W = 3.2, WALL_H = 2.5;
+const OPEN_W = 0.9, OPEN_H = 0.62;
+const OPEN_CX = 0, OPEN_CY = 0.5;
+
+const wallShape = new THREE.Shape();
+wallShape.moveTo(-WALL_W/2, 0);
+wallShape.lineTo(WALL_W/2, 0);
+wallShape.lineTo(WALL_W/2, WALL_H);
+wallShape.lineTo(-WALL_W/2, WALL_H);
+wallShape.closePath();
+
+const holePath = new THREE.Path();
+holePath.moveTo(OPEN_CX - OPEN_W/2, OPEN_CY - OPEN_H/2);
+holePath.lineTo(OPEN_CX + OPEN_W/2, OPEN_CY - OPEN_H/2);
+holePath.lineTo(OPEN_CX + OPEN_W/2, OPEN_CY + OPEN_H/2);
+holePath.lineTo(OPEN_CX - OPEN_W/2, OPEN_CY + OPEN_H/2);
+holePath.closePath();
+wallShape.holes.push(holePath);
+
+const wallGeo = new THREE.ExtrudeGeometry(wallShape, { depth: 0.15, bevelEnabled: false });
+wallGeo.translate(0, 0, -0.075);
+const matWall = new THREE.MeshStandardMaterial({ color: 0x171717, roughness: 0.75, metalness: 0.15, transparent: true, opacity: 1 });
+const wall = new THREE.Mesh(wallGeo, matWall);
+wall.castShadow = true;
+wall.receiveShadow = true;
+machine.add(wall);
+
+// moldura amarela ao redor da abertura
+function frameBar(w, h, x, y){
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.05), matYellow);
+  bar.position.set(x, y, 0.09);
+  return bar;
+}
+const frame = new THREE.Group();
+frame.add(frameBar(OPEN_W + 0.09, 0.05, 0, OPEN_CY + OPEN_H/2 + 0.02));
+frame.add(frameBar(OPEN_W + 0.09, 0.05, 0, OPEN_CY - OPEN_H/2 - 0.02));
+frame.add(frameBar(0.05, OPEN_H + 0.09, -OPEN_W/2 - 0.02, OPEN_CY));
+frame.add(frameBar(0.05, OPEN_H + 0.09, OPEN_W/2 + 0.02, OPEN_CY));
+machine.add(frame);
+
+// placa "retire seu copo"
+const signTex = makeLabelTexture('RETIRE SEU COPO AQUI', { color: '#F5C400', size: 40 });
+const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.22), new THREE.MeshBasicMaterial({ map: signTex, transparent: true }));
+sign.position.set(0, OPEN_CY + OPEN_H/2 + 0.22, 0.09);
+machine.add(sign);
+
+// LED de status na parede (o que o cliente vê)
+const wallLedMat = new THREE.MeshStandardMaterial({ color: 0xF5C400, emissive: 0xF5C400, emissiveIntensity: 1.1 });
+const wallLed = new THREE.Mesh(new THREE.SphereGeometry(0.032, 16, 16), wallLedMat);
+wallLed.position.set(OPEN_W/2 + 0.16, OPEN_CY + OPEN_H/2 + 0.02, 0.1);
+machine.add(wallLed);
+const wallLedGlow = new THREE.PointLight(0xF5C400, 0.6, 1.2);
+wallLedGlow.position.copy(wallLed.position);
+machine.add(wallLedGlow);
+
+/* ============================================================
+   COPOS
+   ============================================================ */
+function makeCupGeometry(){
+  const pts = [
+    new THREE.Vector2(0.00, 0.00),
+    new THREE.Vector2(0.16, 0.00),
+    new THREE.Vector2(0.185, 0.015),
+    new THREE.Vector2(0.235, 0.30),
+    new THREE.Vector2(0.255, 0.42),
+    new THREE.Vector2(0.27, 0.435),
+  ];
+  const geo = new THREE.LatheGeometry(pts, 24);
+  return geo;
+}
+const cupGeo = makeCupGeometry();
+const cupRimGeo = new THREE.TorusGeometry(0.263, 0.008, 8, 24);
+
+function createCupMesh(){
+  // cada copo recebe sua própria cópia do material, para que o efeito de
+  // "desaparecer" no copo liberado não afete os demais copos da pilha.
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(cupGeo, matCup.clone());
+  body.castShadow = true;
+  const rimMesh = new THREE.Mesh(cupRimGeo, matCupRim.clone());
+  rimMesh.rotation.x = Math.PI/2;
+  rimMesh.position.y = 0.435;
+  g.add(body, rimMesh);
+  return g;
+}
+
+function rebuildStack(){
+  stackCups.forEach(c => tubeGroup.remove(c));
+  stackCups.length = 0;
+  const visible = Math.min(cupsRemaining, 9);
+  for (let i = 0; i < visible; i++){
+    const cup = createCupMesh();
+    cup.position.set(0, STACK_BASE_Y + i * STACK_STEP, 0);
+    tubeGroup.add(cup);
+    stackCups.push(cup);
+  }
+}
+rebuildStack();
+
+/* ============================================================
+   ANIMAÇÃO — utilitário de tween
+   ============================================================ */
+function tween(duration, onUpdate, onComplete){
+  const start = performance.now();
+  function step(now){
+    const t = Math.min((now - start) / duration, 1);
+    onUpdate(t);
+    if (t < 1) requestAnimationFrame(step); else if (onComplete) onComplete();
+  }
+  requestAnimationFrame(step);
+}
+const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+const easeInOutQuad = t => t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
+
+/* caminho do copo liberado: mecanismo -> rampa interna -> abertura na parede -> rampa exposta -> bandeja
+   pontos alinhados com o centro das calhas criadas em addChute(), com uma pequena
+   folga vertical para o copo "flutuar" sobre a superfície da rampa. Interpolação
+   manual (sem depender de Curve.getPointAt) para evitar qualquer efeito de borda. */
+const dispenseWaypoints = [
+  new THREE.Vector3(0, 1.00, -1.55),
+  new THREE.Vector3(0, 0.62, -1.55),
+  new THREE.Vector3(0, 0.50, -1.13),
+  new THREE.Vector3(0, 0.42, -0.55),
+  new THREE.Vector3(0, 0.38, -0.02),
+  new THREE.Vector3(0, 0.36,  0.09),
+  new THREE.Vector3(0, 0.22,  0.30),
+  new THREE.Vector3(0, 0.10,  0.55),
+  new THREE.Vector3(0, 0.06,  0.62),
+  new THREE.Vector3(0, 0.05,  0.86),
+];
+
+function pointOnPath(points, t){
+  const segCount = points.length - 1;
+  const scaled = Math.min(Math.max(t, 0), 1) * segCount;
+  let i = Math.floor(scaled);
+  if (i >= segCount) i = segCount - 1;
+  if (i < 0) i = 0;
+  const localT = scaled - i;
+  const a = points[i], b = points[i + 1];
+  return new THREE.Vector3(
+    a.x + (b.x - a.x) * localT,
+    a.y + (b.y - a.y) * localT,
+    a.z + (b.z - a.z) * localT
+  );
+}
+
+function dispenseCup(){
+  try {
+    isDispensing = true;
+    setLed('busy');
+    updateUI();
+
+    const bottomCup = stackCups.shift();
+    let flying;
+    if (bottomCup){
+      tubeGroup.remove(bottomCup);
+      flying = bottomCup;
+    } else {
+      flying = createCupMesh();
+    }
+    flying.position.set(0, 0, 0);
+    flying.scale.set(1, 1, 1);
+    flying.rotation.set(0, 0, 0);
+    machine.add(flying);
+
+    // reacomoda o restante da pilha (desce um degrau para preencher o espaço)
+    const startYs = stackCups.map(c => c.position.y);
+    tween(320, t => {
+      const e = easeOutCubic(t);
+      stackCups.forEach((c, i) => { c.position.y = startYs[i] - STACK_STEP * e; });
+    });
+
+    const DUR = 1250;
+    tween(DUR, t => {
+      const e = easeOutCubic(t);
+      const p = pointOnPath(dispenseWaypoints, e);
+      flying.position.copy(p);
+      flying.rotation.x = Math.sin(t * Math.PI) * 0.7;
+      flying.rotation.z = Math.sin(t * Math.PI * 1.4) * 0.1;
+    }, () => {
+      // pequeno "bounce" ao assentar na bandeja
+      tween(220, bt => {
+        const b = Math.sin(bt * Math.PI);
+        flying.scale.set(1 + b*0.06, 1 - b*0.12, 1 + b*0.06);
+        flying.rotation.x = flying.rotation.x * (1 - bt);
+        flying.rotation.z = flying.rotation.z * (1 - bt);
+      }, () => {
+        flying.scale.set(1, 1, 1);
+        flying.rotation.set(0, 0, 0);
+        isDispensing = false;
+        setLed(cupsRemaining <= 0 ? 'empty' : 'idle');
+        updateUI();
+        // some depois de um tempo, como se o cliente tivesse pego o copo
+        setTimeout(() => {
+          tween(500, ft => {
+            const op = 1 - ft;
+            flying.traverse(m => { if (m.material) { m.material.transparent = true; m.material.opacity = op; } });
+            flying.position.y += 0.0015;
+          }, () => { machine.remove(flying); });
+        }, 1900);
+      });
+    });
+  } catch (err){
+    console.error('Falha ao liberar o copo:', err);
+    isDispensing = false;
+    setLed(cupsRemaining <= 0 ? 'empty' : 'idle');
+    updateUI();
+  }
+}
+
+/* ============================================================
+   LED / STATUS
+   ============================================================ */
+function setLed(state){
+  ledState = state;
+  el.topDot.className = 'dot' + (state === 'busy' ? ' busy' : state === 'empty' ? ' empty' : '');
+}
+
+function updateUI(){
+  el.cupCount.textContent = cupsRemaining;
+  el.countFill.style.width = Math.round((cupsRemaining / MAX_CUPS) * 100) + '%';
+
+  if (ledState === 'busy'){
+    el.statusValue.textContent = 'Liberando copo…';
+    el.statusSub.textContent = 'Aguarde, o copo está descendo pela rampa.';
+    el.topStatusText.textContent = 'Liberando copo';
+  } else if (ledState === 'empty'){
+    el.statusValue.textContent = 'Sem copos';
+    el.statusSub.textContent = 'Cartucho vazio. Reponha para voltar a liberar copos.';
+    el.topStatusText.textContent = 'Sem copos no cartucho';
+  } else {
+    el.statusValue.textContent = 'Pronto';
+    el.statusSub.textContent = 'Aguardando confirmação de pagamento.';
+    el.topStatusText.textContent = 'Pronto para liberar';
+  }
+
+  el.btnPay.disabled = isDispensing || cupsRemaining <= 0;
+  el.btnPay.textContent = isDispensing ? 'Liberando…' : 'Confirmar pagamento';
+}
+
+function showToast(msg){
+  el.toastText.textContent = msg;
+  el.toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.toast.classList.remove('show'), 2600);
+}
+
+/* ============================================================
+   AÇÕES
+   ============================================================ */
+el.btnPay.addEventListener('click', () => {
+  if (isDispensing) return;
+  if (cupsRemaining <= 0){
+    setLed('empty');
+    updateUI();
+    showToast('Pagamento recebido, mas o cartucho está vazio.');
+    return;
+  }
+  cupsRemaining -= 1;
+  dispenseCup();
+});
+
+el.btnEmpty.addEventListener('click', () => {
+  cupsRemaining = 0;
+  rebuildStack();
+  setLed('empty');
+  updateUI();
+  showToast('Cartucho vazio — LED vermelho ativado.');
+});
+
+el.btnRefill.addEventListener('click', () => {
+  cupsRemaining = MAX_CUPS;
+  rebuildStack();
+  if (!isDispensing) setLed('idle');
+  updateUI();
+});
+
+function setView(view){
+  currentView = view;
+  el.viewClient.classList.toggle('active', view === 'client');
+  el.viewTech.classList.toggle('active', view === 'tech');
+
+  const target = view === 'client' ? camClient : camTech;
+  const fromPos = camera.position.clone();
+  const fromTarget = controls.target.clone();
+  tween(900, t => {
+    const e = easeInOutQuad(t);
+    camera.position.lerpVectors(fromPos, target.pos, e);
+    controls.target.lerpVectors(fromTarget, target.target, e);
+    controls.update();
+  });
+
+  tween(500, t => {
+    matWall.opacity = view === 'client' ? 1 - 0.92*t : 0.08 + 0.92*t;
+  });
+}
+el.viewClient.addEventListener('click', () => setView('client'));
+el.viewTech.addEventListener('click', () => setView('tech'));
+
+/* ============================================================
+   LOOP
+   ============================================================ */
+const clock = new THREE.Clock();
+
+function animateLeds(){
+  const t = clock.getElapsedTime();
+  if (ledState === 'busy'){
+    const p = 0.55 + Math.abs(Math.sin(t * 14)) * 0.9;
+    wallLedMat.color.setHex(0xeaf4ff);
+    wallLedMat.emissive.setHex(0xeaf4ff);
+    wallLedMat.emissiveIntensity = p;
+    wallLedGlow.color.setHex(0xeaf4ff);
+    wallLedGlow.intensity = p * 0.8;
+    mechLed.material.emissive.setHex(0x111111);
+    mechLed.material.color.setHex(0x111111);
+  } else if (ledState === 'empty'){
+    const p = 0.4 + (Math.sin(t * 4) * 0.5 + 0.5) * 1.1;
+    wallLedMat.color.setHex(0xFF3B30);
+    wallLedMat.emissive.setHex(0xFF3B30);
+    wallLedMat.emissiveIntensity = p;
+    wallLedGlow.color.setHex(0xFF3B30);
+    wallLedGlow.intensity = p * 0.7;
+    mechLed.material.emissive.setHex(0xFF3B30);
+    mechLed.material.color.setHex(0x660000);
+    mechLed.material.emissiveIntensity = p;
+  } else {
+    wallLedMat.color.setHex(0xF5C400);
+    wallLedMat.emissive.setHex(0xF5C400);
+    wallLedMat.emissiveIntensity = 0.9;
+    wallLedGlow.color.setHex(0xF5C400);
+    wallLedGlow.intensity = 0.5;
+    mechLed.material.emissive.setHex(0x221a00);
+    mechLed.material.color.setHex(0x221a00);
+  }
+}
+
+function loop(){
+  requestAnimationFrame(loop);
+  controls.update();
+  animateLeds();
+  renderer.render(scene, camera);
+}
+
+resize();
+setLed('idle');
+updateUI();
+loop();
+
+// pequena entrada de câmera na carga da página
+(function introDolly(){
+  const from = camera.position.clone().add(new THREE.Vector3(0.8, 0.5, 1.1));
+  camera.position.copy(from);
+  tween(1400, t => {
+    const e = easeInOutQuad(t);
+    camera.position.lerpVectors(from, camClient.pos, e);
+  });
+})();
+</script>
+</body>
+</html>
